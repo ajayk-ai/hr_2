@@ -1,0 +1,34 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# Tooling caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Node
+node_modules/
+frontend/dist/
+
+# Secrets and local config -- never commit these
+.env
+.env.*
+!.env.example
+*.pem
+
+# Service account keys. Google names the download "<project-id>-<key-id>.json",
+# which no sensible wildcard matches, so ignore JSON at the repo root outright --
+# that is where a key lands when someone forgets to move it. Nested JSON
+# (frontend/, tests/) is unaffected.
+/*.json
+*-service-account*.json
+*service_account*.json
+*credentials*.json
