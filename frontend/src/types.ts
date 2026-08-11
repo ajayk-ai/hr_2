@@ -7,13 +7,20 @@ export type DocumentType =
   | "Passport"
   | "Resume"
   | "OfferLetter"
+  | "AppointmentOrder"
   | "RelievingLetter"
   | "ExperienceLetter"
   | "SalarySlip"
+  | "RevisionLetter"
   | "BankStatement"
   | "CancelledCheque"
+  | "SSLC"
+  | "HSC"
+  | "DiplomaCertificate"
   | "Marksheet"
   | "DegreeCertificate"
+  | "PGCertificate"
+  | "MedicalFitnessCertificate"
   | "Other"
   | "Unknown";
 
@@ -30,6 +37,8 @@ export interface FileReport {
   reasoning: string;
   warnings: string[];
   error: string | null;
+  /** Set when this upload was byte-identical to an earlier one, naming that file. */
+  duplicate_of: string | null;
 }
 
 export interface ProcessingReport {
@@ -39,6 +48,12 @@ export interface ProcessingReport {
   files: FileReport[];
   missing_document_types: DocumentType[];
   duplicate_document_types: DocumentType[];
+  /** Uploads skipped as byte-identical copies of another file. */
+  duplicate_uploads: number;
+  /** Documents whose printed name could not be reconciled with the batch. */
+  name_mismatches: string[];
+  /** Identifiers that failed a format or checksum check. */
+  identifier_warnings: string[];
   needs_review: string[];
   processing_ms: number;
 }

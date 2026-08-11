@@ -8,6 +8,7 @@ code running.
 
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass
 
 import filetype
@@ -39,6 +40,13 @@ class LoadedUpload:
     content_type: str
     content: bytes
     upload_index: int
+    content_sha256: str
+    """Digest of the bytes, used to spot the same file uploaded twice.
+
+    Computed on load rather than lazily: the content is already in memory and in
+    cache here, and it must be known before the batch fans out to OCR for the
+    duplicate to be skipped rather than merely reported after the money is spent.
+    """
 
     @property
     def size_bytes(self) -> int:
@@ -104,4 +112,5 @@ async def load_upload(
         content_type=content_type,
         content=content,
         upload_index=upload_index,
+        content_sha256=hashlib.sha256(content).hexdigest(),
     )

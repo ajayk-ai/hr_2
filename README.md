@@ -9,6 +9,10 @@ then returns a ZIP of consistently renamed files in a fixed filing order, plus a
 **Nothing is written to disk.** Uploads are held in memory for the life of the
 request and the ZIP is streamed back from a buffer.
 
+> For the full engineering reference — request lifecycle, module-by-module
+> responsibilities, decision register, failure taxonomy and roadmap — see
+> [`DOCUMENTATION.md`](DOCUMENTATION.md). This file covers setup and operations.
+
 ---
 
 ## Architecture
@@ -108,7 +112,7 @@ Open http://localhost:5173. The Vite dev server proxies `/api` and `/health` to
 ## Development
 
 ```bash
-uv run pytest            # 95 tests
+uv run pytest            # 178 tests
 uv run ruff check .      # lint
 uv run ruff format .     # format
 uv run mypy              # strict type check
@@ -216,6 +220,32 @@ which reintroduces storage and is why it is not here.
 **Retries.** Transient Document AI and Gemini failures retry three times with
 exponential backoff. Non-transient failures (`INVALID_ARGUMENT`,
 `PERMISSION_DENIED`) are not retried; they are configuration errors.
+
+**Identifier validation.** The model's reading of a PAN, Aadhaar or IFSC is never
+trusted straight into a filename. Each is checked against the format's own
+structure — PAN is positional, Aadhaar carries a Verhoeff check digit, IFSC has a
+fixed `0` in position five — and near-certain glyph confusions (`I`/`1`, `O`/`0`,
+`S`/`5`, `B`/`8`) are repaired *only* where the format proves what the character
+must be. Weaker resemblances such as `4`/`A` are rejected rather than guessed: a
+rejected identifier costs a filename segment and a review flag, while a wrongly
+repaired one is silently unverifiable. Failed values are cleared from the
+filename, kept in the warning so the page can be found in the scan, and listed in
+`report.json` under `identifier_warnings`.
+
+**Duplicate uploads.** Byte-identical files are detected by SHA-256 *before* the
+batch fans out, so a re-sent attachment costs neither an OCR page charge nor an
+LLM call. The earliest upload is kept, the copy is reported with `duplicate_of`
+and left out of the ZIP, and it does not count towards `duplicate_document_types`.
+This is byte equality only — two separate scans of one PAN card differ in every
+pixel and are deliberately not treated as duplicates.
+
+**Name mismatch.** The batch name is chosen by weighted vote, so one odd document
+loses rather than dragging every filename with it. That is right for naming and
+wrong for review, since the loser is often somebody else's document. Documents
+whose printed name cannot be reconciled are listed in `name_mismatches` and
+flagged for review — but still delivered. Abbreviation is tolerated (`AJAY K`
+against `AJAY KANAGARAJ`), because Indian documents abbreviate inconsistently and
+alarming on that would bury the real cases.
 
 **TLS behind a corporate proxy.** Networks that intercept and re-sign TLS present
 a private root CA that Python's bundled `certifi` does not carry, so outbound

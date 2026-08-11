@@ -2,6 +2,7 @@ import { useState } from "react";
 
 import { FileDropzone } from "./components/FileDropzone";
 import { FileList } from "./components/FileList";
+import { ProcessingStatus } from "./components/ProcessingStatus";
 import { ResultPanel } from "./components/ResultPanel";
 import { useDocumentProcessor } from "./hooks/useDocumentProcessor";
 
@@ -73,36 +74,27 @@ export default function App() {
           </p>
         </div>
 
-        <div className="actions">
-          <button
-            type="submit"
-            className="button button--primary"
-            disabled={busy || queue.length === 0}
-          >
-            {busy
-              ? "Processing…"
-              : queue.length === 0
+        {busy ? (
+          <ProcessingStatus fileCount={queue.length} onCancel={cancel} />
+        ) : (
+          <div className="actions">
+            <button
+              type="submit"
+              className="button button--primary"
+              disabled={queue.length === 0}
+            >
+              {queue.length === 0
                 ? "Process files"
                 : `Process ${queue.length} ${queue.length === 1 ? "file" : "files"}`}
-          </button>
-          {busy && (
-            <button type="button" className="button button--secondary" onClick={cancel}>
-              Cancel
             </button>
-          )}
-          {!busy && queue.length > 0 && (
-            <button type="button" className="button button--ghost" onClick={reset}>
-              Clear
-            </button>
-          )}
-        </div>
-
-        {busy && (
-          <p className="alert alert--info" role="status">
-            Running OCR and classification. Larger PDFs take longer — this stays open
-            until every file is done.
-          </p>
+            {queue.length > 0 && (
+              <button type="button" className="button button--ghost" onClick={reset}>
+                Clear
+              </button>
+            )}
+          </div>
         )}
+
         {error && (
           <p className="alert alert--error" role="alert">
             {error}

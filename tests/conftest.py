@@ -7,6 +7,7 @@ import pytest
 
 from app.config import Settings
 from app.domain.schemas import DocumentClassification, ExtractedFields
+from app.domain.validation import verhoeff_check_digit
 from app.errors import OcrError
 from app.services.ocr import OcrResult
 
@@ -16,6 +17,13 @@ PNG_BYTES = base64.b64decode(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
 )
 PDF_BYTES = b"%PDF-1.4\n1 0 obj<</Type/Catalog>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF\n"
+
+#: An Aadhaar-shaped number that passes the Verhoeff check, built from the
+#: algorithm rather than taken from a real card. Fixtures need a *valid* number
+#: because identifier validation now discards ones that fail the checksum -- an
+#: arbitrary twelve digits would silently vanish from every filename it appears in.
+_AADHAAR_PREFIX = "23412341234"
+VALID_AADHAAR = _AADHAAR_PREFIX + str(verhoeff_check_digit(_AADHAAR_PREFIX))
 
 
 @pytest.fixture

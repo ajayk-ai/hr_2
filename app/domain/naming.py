@@ -57,6 +57,53 @@ def normalise_name_segment(value: str | None, *, max_length: int = MAX_NAME_SEGM
     return pascal[:max_length]
 
 
+def names_are_compatible(left: str, right: str) -> bool:
+    """Whether two printed names plausibly belong to the same person.
+
+    Indian documents abbreviate inconsistently and legitimately: a PAN card
+    carries "AJAY K" where the Aadhaar spells "AJAY KANAGARAJ", and a resume may
+    drop the middle name entirely. Treating those as different people would bury
+    HR in false alarms; treating *every* difference as the same person would miss
+    the case that matters -- somebody else's document filed against this
+    candidate.
+
+    The rule: every token of the shorter name must be accounted for in the
+    longer one, either exactly or as an initial. That accepts abbreviation and
+    omission, and rejects a genuinely different name.
+
+    An empty name on either side returns True. Absence of evidence is not
+    evidence of a mismatch, and the document is already flagged for review.
+    """
+    left_tokens = _name_tokens(left)
+    right_tokens = _name_tokens(right)
+    if not left_tokens or not right_tokens:
+        return True
+
+    shorter, longer = sorted((left_tokens, right_tokens), key=len)
+    unmatched = list(longer)
+    for token in shorter:
+        match = next(
+            (
+                other
+                for other in unmatched
+                # A single letter is an initial and matches any token it begins.
+                if other == token
+                or (len(token) == 1 and other.startswith(token))
+                or (len(other) == 1 and token.startswith(other))
+            ),
+            None,
+        )
+        if match is None:
+            return False
+        unmatched.remove(match)
+    return True
+
+
+def _name_tokens(value: str) -> list[str]:
+    ascii_form = unicodedata.normalize("NFKD", value or "").encode("ascii", "ignore").decode()
+    return [token.upper() for token in _NON_ALNUM.split(ascii_form) if token]
+
+
 def extension_for(original_filename: str, content_type: str) -> str:
     """Pick a safe extension for the output file.
 
@@ -105,12 +152,20 @@ def build_identifier(
             return "-".join(p for p in parts if p)
         case DocumentType.CANCELLED_CHEQUE if fields.bank_account_number:
             return _mask(fields.bank_account_number)
-        case DocumentType.MARKSHEET | DocumentType.DEGREE_CERTIFICATE:
+        case (
+            DocumentType.SSLC_CERTIFICATE
+            | DocumentType.HSC_CERTIFICATE
+            | DocumentType.DIPLOMA_CERTIFICATE
+            | DocumentType.MARKSHEET
+            | DocumentType.DEGREE_CERTIFICATE
+            | DocumentType.PG_CERTIFICATE
+        ):
             qualification = normalise_name_segment(fields.qualification, max_length=20)
             year = str(fields.exam_year) if fields.exam_year else ""
             return "-".join(p for p in (qualification, year) if p)
         case (
             DocumentType.OFFER_LETTER
+            | DocumentType.APPOINTMENT_ORDER
             | DocumentType.RELIEVING_LETTER
             | DocumentType.EXPERIENCE_LETTER
         ):
@@ -150,6 +205,7 @@ def build_filename(
     original_filename: str,
     content_type: str,
     sequence: int,
+    request_id: str = "",
     mask_sensitive: bool = True,
 ) -> str:
     """Compose the final in-ZIP filename.
@@ -157,6 +213,14 @@ def build_filename(
     The ``NN_`` prefix is not decoration: ZIP entries have no intrinsic display
     order, so every extractor and file browser re-sorts alphabetically. The prefix
     is what makes the requested filing order survive extraction.
+
+    ``request_id`` -- the same id already shown in the UI and used to name the
+    ZIP itself (``documents_<id>.zip``) -- is appended to every file it contains.
+    Two files named identically by two different HR uploads is otherwise a real
+    collision risk once files get extracted out of their ZIP and consolidated
+    into one shared folder; the tag also lets any loose file be traced back to
+    the request that produced it. It is reserved from the truncation budget
+    rather than truncated itself, so it is never the part that gets cut off.
     """
     name = (
         normalise_name_segment(candidate_name)
@@ -172,8 +236,9 @@ def build_filename(
     stem = "_".join(segments)
 
     prefix = f"{sequence:02d}_"
-    budget = MAX_FILENAME_LENGTH - len(prefix) - len(extension)
-    return f"{prefix}{stem[:budget]}{extension}"
+    id_tag = f"_{request_id[:8]}" if request_id else ""
+    budget = MAX_FILENAME_LENGTH - len(prefix) - len(extension) - len(id_tag)
+    return f"{prefix}{stem[:budget]}{id_tag}{extension}"
 
 
 def deduplicate(filenames: list[str]) -> list[str]:

@@ -39,11 +39,22 @@ def client(monkeypatch: pytest.MonkeyPatch, settings: Settings) -> Iterator[Test
         yield test_client
 
 
-def post_files(client: TestClient, files: list[tuple[str, bytes, str]], **data: str):
+def post_files(
+    client: TestClient,
+    files: list[tuple[str, bytes, str]],
+    *,
+    request_id: str | None = None,
+    **data: str,
+):
+    # Honouring an inbound X-Request-Id is what lets a test assert an exact
+    # output filename: the pipeline tags every filename with this id, and
+    # otherwise it would be a fresh, unpredictable uuid on every call.
+    headers = {"X-Request-Id": request_id} if request_id else {}
     return client.post(
         "/api/v1/documents/process",
         files=[("files", (name, content, ctype)) for name, content, ctype in files],
         data=data,
+        headers=headers,
     )
 
 
@@ -67,6 +78,7 @@ class TestProcess:
         response = post_files(
             client,
             [("cv.pdf", PDF_BYTES, "application/pdf"), ("photo.png", PNG_BYTES, "image/png")],
+            request_id="deadbeef-0000-0000-0000-000000000000",
         )
 
         assert response.status_code == 200
@@ -79,8 +91,8 @@ class TestProcess:
             report = json.loads(zf.read("report.json"))
 
         assert names == [
-            "01_RaviKumar_Photograph.png",
-            "02_RaviKumar_Resume.pdf",
+            "01_RaviKumar_Photograph_deadbeef.png",
+            "02_RaviKumar_Resume_deadbeef.pdf",
             "report.json",
         ]
         assert report["candidate_name"] == "Ravi Kumar"
@@ -88,10 +100,13 @@ class TestProcess:
 
     def test_an_explicit_candidate_name_is_honoured(self, client: TestClient) -> None:
         response = post_files(
-            client, [("cv.pdf", PDF_BYTES, "application/pdf")], candidate_name="Priya Nair"
+            client,
+            [("cv.pdf", PDF_BYTES, "application/pdf")],
+            candidate_name="Priya Nair",
+            request_id="deadbeef-0000-0000-0000-000000000000",
         )
         with zipfile.ZipFile(io.BytesIO(response.content)) as zf:
-            assert "01_PriyaNair_Resume.pdf" in zf.namelist()
+            assert "01_PriyaNair_Resume_deadbeef.pdf" in zf.namelist()
 
     def test_missing_documents_are_reported(self, client: TestClient) -> None:
         response = post_files(

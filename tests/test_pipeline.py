@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import zipfile
 
@@ -11,16 +12,37 @@ from app.domain.schemas import DocumentClassification, ExtractedFields, Processi
 from app.services.ocr import OcrResult
 from app.services.pipeline import DocumentPipeline
 from app.utils.uploads import LoadedUpload
-from tests.conftest import PDF_BYTES, PNG_BYTES, FakeClassifier, FakeOcrEngine
+from tests.conftest import PDF_BYTES, PNG_BYTES, VALID_AADHAAR, FakeClassifier, FakeOcrEngine
 
 pytestmark = pytest.mark.asyncio
 
+# Every filename `pipeline.run` produces is now tagged with the batch's request
+# id, so tests asserting an exact filename need a deterministic one to assert
+# against -- `pipeline.run` would otherwise mint a fresh `uuid.uuid4().hex` per
+# call, and the expected string would never match twice.
+REQUEST_ID = "deadbeef-0000-0000-0000-000000000000"
+ID_TAG = REQUEST_ID[:8]
+
 
 def upload(
-    name: str, *, index: int, content: bytes = PDF_BYTES, ctype: str = "application/pdf"
+    name: str, *, index: int, content: bytes | None = None, ctype: str = "application/pdf"
 ) -> LoadedUpload:
+    """One upload, with bytes distinct per filename unless told otherwise.
+
+    Distinctness is the default because the pipeline now skips byte-identical
+    uploads: a shared constant would collapse every multi-file fixture into a
+    single document plus duplicates. Tests that *want* a duplicate pass the same
+    `content` explicitly, which is exactly what the real case looks like.
+    """
+    if content is None:
+        content = PDF_BYTES + f"%{name}\n".encode()
     return LoadedUpload(
-        original_filename=name, content_type=ctype, content=content, upload_index=index
+        original_filename=name,
+        content_type=ctype,
+        content=content,
+        upload_index=index,
+        # Derived exactly as `load_upload` does.
+        content_sha256=hashlib.sha256(content).hexdigest(),
     )
 
 
@@ -77,16 +99,29 @@ class TestHappyPath:
             },
         )
 
-        result = await pipeline.run(uploads)
+        result = await pipeline.run(uploads, request_id=REQUEST_ID)
 
         with zipfile.ZipFile(result.archive) as zf:
             names = [n for n in zf.namelist() if n != "report.json"]
 
         assert names == [
-            "01_RaviKumar_Photograph.png",
-            "02_RaviKumar_PAN_ABCDE1234F.pdf",
-            "03_RaviKumar_Marksheet_BTech-2018.pdf",
+            f"01_RaviKumar_Photograph_{ID_TAG}.png",
+            f"02_RaviKumar_PAN_ABCDE1234F_{ID_TAG}.pdf",
+            f"03_RaviKumar_Marksheet_BTech-2018_{ID_TAG}.pdf",
         ]
+
+    async def test_every_file_is_tagged_with_the_batch_request_id(self, settings: Settings) -> None:
+        """Guards the collision this feature exists to prevent: two different
+        uploads extracted into the same folder must not be able to overwrite
+        each other just because they got the same descriptive name."""
+        uploads = [upload("a.pdf", index=0)]
+        pipeline, _, _ = make_pipeline(
+            settings, {"a.pdf": ocr()}, {"a.pdf": classification(DocumentType.RESUME)}
+        )
+
+        result = await pipeline.run(uploads, candidate_name="Ravi", request_id=REQUEST_ID)
+
+        assert result.report.files[0].output_filename == f"01_Ravi_Resume_{ID_TAG}.pdf"
 
     async def test_original_bytes_are_preserved_exactly(self, settings: Settings) -> None:
         uploads = [upload("cv.pdf", index=0)]
@@ -94,10 +129,10 @@ class TestHappyPath:
             settings, {"cv.pdf": ocr()}, {"cv.pdf": classification(DocumentType.RESUME)}
         )
 
-        result = await pipeline.run(uploads, candidate_name="Ravi Kumar")
+        result = await pipeline.run(uploads, candidate_name="Ravi Kumar", request_id=REQUEST_ID)
 
         with zipfile.ZipFile(result.archive) as zf:
-            assert zf.read("01_RaviKumar_Resume.pdf") == PDF_BYTES
+            assert zf.read(f"01_RaviKumar_Resume_{ID_TAG}.pdf") == uploads[0].content
 
     async def test_report_lists_files_in_upload_order(self, settings: Settings) -> None:
         uploads = [upload("b.pdf", index=0), upload("a.pdf", index=1)]
@@ -144,7 +179,7 @@ class TestCandidateNameResolution:
                 "id.pdf": classification(
                     DocumentType.AADHAAR,
                     full_name="Ravi Kumar Sharma",
-                    aadhaar_number="123412341234",
+                    aadhaar_number=VALID_AADHAAR,
                 ),
             },
         )
@@ -182,10 +217,12 @@ class TestPartialFailure:
             {"good.pdf": classification(DocumentType.RESUME, full_name="Ravi")},
         )
 
-        result = await pipeline.run(uploads)
+        result = await pipeline.run(uploads, request_id=REQUEST_ID)
 
         with zipfile.ZipFile(result.archive) as zf:
-            assert [n for n in zf.namelist() if n != "report.json"] == ["01_Ravi_Resume.pdf"]
+            assert [n for n in zf.namelist() if n != "report.json"] == [
+                f"01_Ravi_Resume_{ID_TAG}.pdf"
+            ]
 
         failed = next(f for f in result.report.files if f.original_filename == "corrupt.pdf")
         assert failed.error is not None
@@ -204,10 +241,10 @@ class TestPartialFailure:
             {"blurry.pdf": classification(DocumentType.RESUME, full_name="Ravi")},
         )
 
-        result = await pipeline.run(uploads)
+        result = await pipeline.run(uploads, request_id=REQUEST_ID)
 
         assert "Low scan quality." in result.report.files[0].warnings
-        assert result.report.needs_review == ["01_Ravi_Resume.pdf"]
+        assert result.report.needs_review == [f"01_Ravi_Resume_{ID_TAG}.pdf"]
 
 
 class TestConfidenceGate:
@@ -219,11 +256,11 @@ class TestConfidenceGate:
             {"maybe.pdf": classification(DocumentType.AADHAAR, confidence=0.3, full_name="Ravi")},
         )
 
-        result = await pipeline.run(uploads)
+        result = await pipeline.run(uploads, request_id=REQUEST_ID)
         report = result.report.files[0]
 
         assert report.document_type is DocumentType.UNKNOWN
-        assert report.output_filename == "01_Ravi_Unknown.pdf"
+        assert report.output_filename == f"01_Ravi_Unknown_{ID_TAG}.pdf"
         assert any("low confidence" in w for w in report.warnings)
 
     async def test_middling_confidence_is_filed_but_flagged(self, settings: Settings) -> None:
@@ -240,10 +277,10 @@ class TestConfidenceGate:
             },
         )
 
-        result = await pipeline.run(uploads)
+        result = await pipeline.run(uploads, request_id=REQUEST_ID)
 
         assert result.report.files[0].document_type is DocumentType.PAN
-        assert result.report.needs_review == ["01_Ravi_PAN_ABCDE1234F.pdf"]
+        assert result.report.needs_review == [f"01_Ravi_PAN_ABCDE1234F_{ID_TAG}.pdf"]
 
     async def test_confident_classifications_are_not_flagged(self, settings: Settings) -> None:
         uploads = [upload("id.pdf", index=0)]
@@ -270,7 +307,7 @@ class TestConfidenceGate:
                 "id.pdf": classification(
                     DocumentType.AADHAAR,
                     confidence=0.9,
-                    aadhaar_number="123412341234",
+                    aadhaar_number=VALID_AADHAAR,
                     full_name="Ravi",
                 )
             },
@@ -279,6 +316,334 @@ class TestConfidenceGate:
         result = await pipeline.run(uploads)
 
         assert result.report.files[0].document_type is DocumentType.AADHAAR
+
+
+class TestDuplicateUploads:
+    """The same bytes arriving twice: a re-send after an upload appeared to fail,
+    or the same attachment added under two names."""
+
+    async def test_an_identical_file_is_skipped_not_processed(self, settings: Settings) -> None:
+        """Skipping before the fan-out is the point -- an OCR page charge and an
+        LLM call for a file that would be discarded anyway is pure waste."""
+        shared = PDF_BYTES + b"%identical\n"
+        uploads = [
+            upload("PAN.pdf", index=0, content=shared),
+            upload("PAN_copy.pdf", index=1, content=shared),
+        ]
+        pipeline, engine, classifier = make_pipeline(
+            settings,
+            {"PAN.pdf": ocr()},
+            {"PAN.pdf": classification(DocumentType.PAN, pan_number="ABCDE1234F")},
+        )
+
+        result = await pipeline.run(uploads, candidate_name="Ravi")
+
+        assert engine.calls == ["PAN.pdf"]
+        assert classifier.calls == ["PAN.pdf"]
+        assert result.report.duplicate_uploads == 1
+
+    async def test_the_duplicate_is_reported_and_left_out_of_the_zip(
+        self, settings: Settings
+    ) -> None:
+        shared = PDF_BYTES + b"%identical\n"
+        uploads = [
+            upload("PAN.pdf", index=0, content=shared),
+            upload("PAN_copy.pdf", index=1, content=shared),
+        ]
+        pipeline, _, _ = make_pipeline(
+            settings,
+            {"PAN.pdf": ocr()},
+            {"PAN.pdf": classification(DocumentType.PAN, pan_number="ABCDE1234F")},
+        )
+
+        result = await pipeline.run(uploads, candidate_name="Ravi", request_id=REQUEST_ID)
+
+        with zipfile.ZipFile(result.archive) as zf:
+            names = [n for n in zf.namelist() if n != "report.json"]
+        assert names == [f"01_Ravi_PAN_ABCDE1234F_{ID_TAG}.pdf"]
+
+        duplicate = next(f for f in result.report.files if f.original_filename == "PAN_copy.pdf")
+        assert duplicate.duplicate_of == "PAN.pdf"
+        assert duplicate.output_filename is None
+        assert duplicate.error is None, "a duplicate is not a failure"
+
+    async def test_the_earliest_upload_is_the_one_kept(self, settings: Settings) -> None:
+        """HR reconciles against the order they attached files in."""
+        shared = PDF_BYTES + b"%identical\n"
+        uploads = [
+            upload("second.pdf", index=1, content=shared),
+            upload("first.pdf", index=0, content=shared),
+        ]
+        pipeline, _, _ = make_pipeline(
+            settings, {"first.pdf": ocr()}, {"first.pdf": classification(DocumentType.RESUME)}
+        )
+
+        result = await pipeline.run(uploads, candidate_name="Ravi")
+
+        kept = next(f for f in result.report.files if f.duplicate_of is None)
+        assert kept.original_filename == "first.pdf"
+
+    async def test_a_duplicate_does_not_count_as_a_repeated_document_type(
+        self, settings: Settings
+    ) -> None:
+        """Otherwise re-attaching one PAN looks like two PANs on file."""
+        shared = PDF_BYTES + b"%identical\n"
+        uploads = [
+            upload("PAN.pdf", index=0, content=shared),
+            upload("PAN_again.pdf", index=1, content=shared),
+        ]
+        pipeline, _, _ = make_pipeline(
+            settings,
+            {"PAN.pdf": ocr()},
+            {"PAN.pdf": classification(DocumentType.PAN, pan_number="ABCDE1234F")},
+        )
+
+        result = await pipeline.run(uploads, candidate_name="Ravi")
+
+        assert result.report.duplicate_document_types == []
+
+    async def test_similar_but_not_identical_files_both_process(self, settings: Settings) -> None:
+        """Two separate scans of one PAN card differ in every pixel. Byte equality
+        must not be mistaken for a semantic judgement about content."""
+        uploads = [upload("scan1.pdf", index=0), upload("scan2.pdf", index=1)]
+        pipeline, engine, _ = make_pipeline(
+            settings,
+            {"scan1.pdf": ocr(), "scan2.pdf": ocr()},
+            {
+                "scan1.pdf": classification(DocumentType.PAN, pan_number="ABCDE1234F"),
+                "scan2.pdf": classification(DocumentType.PAN, pan_number="ABCDE1234F"),
+            },
+        )
+
+        result = await pipeline.run(uploads, candidate_name="Ravi")
+
+        assert sorted(engine.calls) == ["scan1.pdf", "scan2.pdf"]
+        assert result.report.duplicate_uploads == 0
+
+
+class TestIdentifierValidation:
+    """A misread identifier must never reach a filename unchallenged."""
+
+    async def test_a_repairable_pan_is_corrected_and_flagged(self, settings: Settings) -> None:
+        uploads = [upload("pan.pdf", index=0)]
+        pipeline, _, _ = make_pipeline(
+            settings,
+            {"pan.pdf": ocr()},
+            # `I` misread for `1` -- the single commonest PAN OCR error.
+            {"pan.pdf": classification(DocumentType.PAN, pan_number="ABCDEI234F")},
+        )
+
+        result = await pipeline.run(uploads, candidate_name="Ravi", request_id=REQUEST_ID)
+        report = result.report
+
+        assert report.files[0].output_filename == f"01_Ravi_PAN_ABCDE1234F_{ID_TAG}.pdf"
+        assert any("Repaired" in w for w in report.files[0].warnings)
+        assert report.identifier_warnings
+
+    async def test_an_unrepairable_identifier_is_dropped_from_the_filename(
+        self, settings: Settings
+    ) -> None:
+        """The file is still delivered -- it simply carries no unverifiable number."""
+        uploads = [upload("pan.pdf", index=0)]
+        pipeline, _, _ = make_pipeline(
+            settings,
+            {"pan.pdf": ocr()},
+            {"pan.pdf": classification(DocumentType.PAN, pan_number="NOTAPAN")},
+        )
+
+        result = await pipeline.run(uploads, candidate_name="Ravi", request_id=REQUEST_ID)
+
+        assert result.report.files[0].output_filename == f"01_Ravi_PAN_{ID_TAG}.pdf"
+        assert result.report.files[0].error is None
+
+    async def test_a_degenerate_model_reading_is_not_dumped_whole_into_the_warning(
+        self, settings: Settings
+    ) -> None:
+        """Regression test for a real production failure.
+
+        Constrained decoding on a field the model found nothing for occasionally
+        produces a long repeated phrase instead of an empty string -- observed
+        live as ifsc_code coming back as "not present in document text. Leaving
+        empty." repeated to several thousand characters. Validation already
+        rejects it correctly (it is nowhere near 11 characters); this test is
+        about the *display* of that rejection, which used to embed the entire
+        raw value verbatim and turn one bad field into an unreadable wall of
+        text in the report and the UI.
+        """
+        degenerate = "not present in document text. Leaving empty. - " * 140
+        assert len(degenerate) > 5000, "the fixture must reproduce the same order of magnitude"
+
+        uploads = [upload("payslip.pdf", index=0)]
+        pipeline, _, _ = make_pipeline(
+            settings,
+            {"payslip.pdf": ocr()},
+            {
+                "payslip.pdf": classification(
+                    DocumentType.SALARY_SLIP, full_name="Ravi", ifsc_code=degenerate
+                )
+            },
+        )
+
+        result = await pipeline.run(uploads)
+        warning = next(w for w in result.report.files[0].warnings if w.startswith("Discarded"))
+
+        assert len(warning) < 200, f"warning was {len(warning)} chars: leaked the raw value"
+        assert degenerate not in warning
+
+    async def test_the_rejected_reading_survives_in_the_warning(self, settings: Settings) -> None:
+        """HR needs the bad value to find the page in the original scan."""
+        uploads = [upload("pan.pdf", index=0)]
+        pipeline, _, _ = make_pipeline(
+            settings,
+            {"pan.pdf": ocr()},
+            {"pan.pdf": classification(DocumentType.PAN, pan_number="NOTAPAN")},
+        )
+
+        result = await pipeline.run(uploads, candidate_name="Ravi")
+
+        assert any("NOTAPAN" in w for w in result.report.files[0].warnings)
+
+    async def test_an_aadhaar_failing_its_checksum_is_rejected(self, settings: Settings) -> None:
+        """A number that clears length and prefix and fails only on the checksum.
+
+        Corrupting the check digit of a valid number isolates the Verhoeff branch;
+        something like `123456789012` would be rejected by the leading-digit rule
+        first and never reach it.
+        """
+        corrupted = VALID_AADHAAR[:-1] + str((int(VALID_AADHAAR[-1]) + 1) % 10)
+        uploads = [upload("id.pdf", index=0)]
+        pipeline, _, _ = make_pipeline(
+            settings,
+            {"id.pdf": ocr()},
+            {
+                "id.pdf": classification(
+                    DocumentType.AADHAAR, aadhaar_number=corrupted, full_name="Ravi"
+                )
+            },
+        )
+
+        result = await pipeline.run(uploads, request_id=REQUEST_ID)
+
+        assert result.report.files[0].output_filename == f"01_Ravi_Aadhaar_{ID_TAG}.pdf"
+        assert any("checksum" in w.lower() for w in result.report.files[0].warnings)
+
+    async def test_a_discarded_identifier_forces_human_review(self, settings: Settings) -> None:
+        uploads = [upload("pan.pdf", index=0)]
+        pipeline, _, _ = make_pipeline(
+            settings,
+            {"pan.pdf": ocr()},
+            {"pan.pdf": classification(DocumentType.PAN, pan_number="NOTAPAN")},
+        )
+
+        result = await pipeline.run(uploads, candidate_name="Ravi", request_id=REQUEST_ID)
+
+        assert result.report.needs_review == [f"01_Ravi_PAN_{ID_TAG}.pdf"]
+
+    async def test_a_valid_identifier_passes_through_silently(self, settings: Settings) -> None:
+        """No warning noise on the overwhelmingly common clean case."""
+        uploads = [upload("pan.pdf", index=0)]
+        pipeline, _, _ = make_pipeline(
+            settings,
+            {"pan.pdf": ocr()},
+            {"pan.pdf": classification(DocumentType.PAN, pan_number="ABCDE1234F")},
+        )
+
+        result = await pipeline.run(uploads, candidate_name="Ravi")
+
+        assert result.report.files[0].warnings == []
+        assert result.report.identifier_warnings == []
+
+
+class TestNameMismatch:
+    async def test_another_persons_document_is_flagged(self, settings: Settings) -> None:
+        """The weighted vote makes this document lose, which is right for naming
+        and wrong for review -- the loser is exactly what needs a second look."""
+        uploads = [
+            upload("pan.pdf", index=0),
+            upload("aadhaar.pdf", index=1),
+            upload("stray.pdf", index=2),
+        ]
+        pipeline, _, _ = make_pipeline(
+            settings,
+            {u.original_filename: ocr() for u in uploads},
+            {
+                "pan.pdf": classification(
+                    DocumentType.PAN, full_name="Ajay Kanagaraj", pan_number="ABCDE1234F"
+                ),
+                "aadhaar.pdf": classification(
+                    DocumentType.AADHAAR,
+                    full_name="Ajay Kanagaraj",
+                    aadhaar_number=VALID_AADHAAR,
+                ),
+                "stray.pdf": classification(DocumentType.RESUME, full_name="Priya Sharma"),
+            },
+        )
+
+        result = await pipeline.run(uploads)
+
+        assert len(result.report.name_mismatches) == 1
+        assert "stray.pdf" in result.report.name_mismatches[0]
+        assert "Priya Sharma" in result.report.name_mismatches[0]
+
+    async def test_an_abbreviated_name_is_not_flagged(self, settings: Settings) -> None:
+        """`AJAY K` on a PAN against `AJAY KANAGARAJ` on an Aadhaar is routine."""
+        uploads = [upload("pan.pdf", index=0), upload("aadhaar.pdf", index=1)]
+        pipeline, _, _ = make_pipeline(
+            settings,
+            {u.original_filename: ocr() for u in uploads},
+            {
+                "pan.pdf": classification(
+                    DocumentType.PAN, full_name="Ajay K", pan_number="ABCDE1234F"
+                ),
+                "aadhaar.pdf": classification(
+                    DocumentType.AADHAAR,
+                    full_name="Ajay Kanagaraj",
+                    aadhaar_number=VALID_AADHAAR,
+                ),
+            },
+        )
+
+        result = await pipeline.run(uploads)
+
+        assert result.report.name_mismatches == []
+
+    async def test_a_mismatch_sends_the_file_to_review(self, settings: Settings) -> None:
+        uploads = [upload("pan.pdf", index=0), upload("stray.pdf", index=1)]
+        pipeline, _, _ = make_pipeline(
+            settings,
+            {u.original_filename: ocr() for u in uploads},
+            {
+                "pan.pdf": classification(
+                    DocumentType.PAN, full_name="Ajay Kanagaraj", pan_number="ABCDE1234F"
+                ),
+                "stray.pdf": classification(DocumentType.RESUME, full_name="Priya Sharma"),
+            },
+        )
+
+        result = await pipeline.run(uploads, candidate_name="Ajay Kanagaraj")
+        stray = next(f for f in result.report.files if f.original_filename == "stray.pdf")
+
+        assert stray.output_filename in result.report.needs_review
+
+    async def test_the_mismatched_file_is_still_delivered(self, settings: Settings) -> None:
+        """Flagged, not withheld. HR decides; the system does not silently drop."""
+        uploads = [upload("pan.pdf", index=0), upload("stray.pdf", index=1)]
+        pipeline, _, _ = make_pipeline(
+            settings,
+            {u.original_filename: ocr() for u in uploads},
+            {
+                "pan.pdf": classification(
+                    DocumentType.PAN, full_name="Ajay Kanagaraj", pan_number="ABCDE1234F"
+                ),
+                "stray.pdf": classification(DocumentType.RESUME, full_name="Priya Sharma"),
+            },
+        )
+
+        result = await pipeline.run(uploads, candidate_name="Ajay Kanagaraj")
+
+        with zipfile.ZipFile(result.archive) as zf:
+            names = [n for n in zf.namelist() if n != "report.json"]
+        assert len(names) == 2
 
 
 class TestCompleteness:
@@ -341,17 +706,19 @@ class TestPrivacy:
             {"id.pdf": ocr()},
             {
                 "id.pdf": classification(
-                    DocumentType.AADHAAR, aadhaar_number="123412341234", full_name="Ravi"
+                    DocumentType.AADHAAR, aadhaar_number=VALID_AADHAAR, full_name="Ravi"
                 )
             },
         )
 
-        result = await pipeline.run(uploads)
+        result = await pipeline.run(uploads, request_id=REQUEST_ID)
         report = read_report(result.archive)
         serialised = report.model_dump_json()
 
-        assert "123412341234" not in serialised
-        assert report.files[0].output_filename == "01_Ravi_Aadhaar_XXXXXXXX1234.pdf"
+        assert VALID_AADHAAR not in serialised
+        assert report.files[0].output_filename == (
+            f"01_Ravi_Aadhaar_XXXXXXXX{VALID_AADHAAR[-4:]}_{ID_TAG}.pdf"
+        )
 
     async def test_masking_can_be_disabled(self, settings: Settings) -> None:
         settings = settings.model_copy(update={"mask_sensitive_ids": False})
@@ -361,14 +728,17 @@ class TestPrivacy:
             {"id.pdf": ocr()},
             {
                 "id.pdf": classification(
-                    DocumentType.AADHAAR, aadhaar_number="123412341234", full_name="Ravi"
+                    DocumentType.AADHAAR, aadhaar_number=VALID_AADHAAR, full_name="Ravi"
                 )
             },
         )
 
-        result = await pipeline.run(uploads)
+        result = await pipeline.run(uploads, request_id=REQUEST_ID)
 
-        assert result.report.files[0].output_filename == "01_Ravi_Aadhaar_123412341234.pdf"
+        assert (
+            result.report.files[0].output_filename
+            == f"01_Ravi_Aadhaar_{VALID_AADHAAR}_{ID_TAG}.pdf"
+        )
 
 
 class TestConcurrency:

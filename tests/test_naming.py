@@ -82,6 +82,36 @@ class TestBuildIdentifier:
         fields = ExtractedFields(qualification="B Tech", exam_year=2018)
         assert build_identifier(DocumentType.MARKSHEET, fields) == "BTech-2018"
 
+    @pytest.mark.parametrize(
+        "document_type",
+        [
+            DocumentType.SSLC_CERTIFICATE,
+            DocumentType.HSC_CERTIFICATE,
+            DocumentType.DIPLOMA_CERTIFICATE,
+            DocumentType.PG_CERTIFICATE,
+        ],
+    )
+    def test_the_new_education_levels_use_the_same_pattern_as_marksheet(
+        self, document_type: DocumentType
+    ) -> None:
+        fields = ExtractedFields(qualification="MBA", exam_year=2022)
+        assert build_identifier(document_type, fields) == "MBA-2022"
+
+    def test_appointment_order_uses_employer_and_year_like_offer_letter(self) -> None:
+        fields = ExtractedFields(employer_name="Acme Technologies", document_date="2023-06-01")
+        assert build_identifier(DocumentType.APPOINTMENT_ORDER, fields) == "AcmeTechnologies-2023"
+
+    @pytest.mark.parametrize(
+        "document_type", [DocumentType.MEDICAL_FITNESS_CERTIFICATE, DocumentType.REVISION_LETTER]
+    )
+    def test_medical_and_revision_letter_have_no_natural_identifier(
+        self, document_type: DocumentType
+    ) -> None:
+        """Neither carries a number or a date that would make a useful filename
+        segment -- same treatment as Photograph and Resume."""
+        fields = ExtractedFields(qualification="ignored", employer_name="ignored")
+        assert build_identifier(document_type, fields) == ""
+
     def test_photograph_has_no_identifier(self) -> None:
         assert build_identifier(DocumentType.PHOTOGRAPH, ExtractedFields()) == ""
 
@@ -111,6 +141,48 @@ class TestBuildFilename:
             sequence=1,
         )
         assert name == "01_RaviKumar_Photograph.jpg"
+
+    def test_appends_a_request_id_tag_when_given(self) -> None:
+        """Two candidates' files extracted into one shared folder must not be
+        able to collide just because they happen to get the same descriptive
+        name -- the batch id makes every file globally distinguishable."""
+        name = build_filename(
+            candidate_name="Ravi Kumar",
+            document_type=DocumentType.PAN,
+            fields=ExtractedFields(pan_number="ABCDE1234F"),
+            original_filename="IMG_2931.pdf",
+            content_type="application/pdf",
+            sequence=3,
+            request_id="a1b2c3d4-e5f6-0000-0000-000000000000",
+        )
+        assert name == "03_RaviKumar_PAN_ABCDE1234F_a1b2c3d4.pdf"
+
+    def test_omits_the_tag_when_no_request_id_is_given(self) -> None:
+        name = build_filename(
+            candidate_name="Ravi Kumar",
+            document_type=DocumentType.PAN,
+            fields=ExtractedFields(pan_number="ABCDE1234F"),
+            original_filename="IMG_2931.pdf",
+            content_type="application/pdf",
+            sequence=3,
+        )
+        assert name == "03_RaviKumar_PAN_ABCDE1234F.pdf"
+
+    def test_the_id_tag_is_never_the_part_that_gets_truncated(self) -> None:
+        """It is reserved from the length budget rather than truncated with the
+        rest -- a traceability tag that occasionally goes missing is worse than
+        one that is always present."""
+        name = build_filename(
+            candidate_name="A" * 60,
+            document_type=DocumentType.MARKSHEET,
+            fields=ExtractedFields(qualification="Q" * 60, exam_year=2018),
+            original_filename="x.pdf",
+            content_type="application/pdf",
+            sequence=12,
+            request_id="deadbeef0000",
+        )
+        assert len(name) <= 120
+        assert name.endswith("_deadbeef.pdf")
 
     def test_falls_back_to_the_original_filename_when_no_name_is_known(self) -> None:
         name = build_filename(

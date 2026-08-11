@@ -108,6 +108,13 @@ class FileReport(BaseModel):
     reasoning: str = ""
     warnings: list[str] = Field(default_factory=list)
     error: str | None = None
+    duplicate_of: str | None = Field(
+        default=None,
+        description=(
+            "Set when this upload is byte-identical to an earlier one, naming that "
+            "file. Duplicates are reported but left out of the ZIP."
+        ),
+    )
 
     @property
     def succeeded(self) -> bool:
@@ -123,6 +130,24 @@ class ProcessingReport(BaseModel):
     files: list[FileReport]
     missing_document_types: list[DocumentType] = Field(default_factory=list)
     duplicate_document_types: list[DocumentType] = Field(default_factory=list)
+    duplicate_uploads: int = Field(
+        default=0,
+        description="Uploads skipped as byte-identical copies of another file.",
+    )
+    name_mismatches: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Documents whose printed name cannot be reconciled with the rest of "
+            "the batch -- most often another person's document filed by mistake."
+        ),
+    )
+    identifier_warnings: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Identifiers that failed format or checksum validation. These indicate "
+            "a misread scan or a document that is not what it claims to be."
+        ),
+    )
     needs_review: list[str] = Field(
         default_factory=list,
         description="Output filenames a human should check before the file is accepted.",

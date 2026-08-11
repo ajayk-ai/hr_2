@@ -51,9 +51,25 @@ export function FileDropzone({ onFiles, disabled }: Props) {
           event.target.value = "";
         }}
       />
+      <svg
+        className="dropzone__icon"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden="true"
+      >
+        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+        <path d="M7 10l5-5 5 5" />
+        <path d="M12 5v12" />
+      </svg>
       <p className="dropzone__title">Drop the candidate&rsquo;s documents here</p>
       <p className="dropzone__hint">
-        PDF, JPEG, PNG, TIFF, BMP, WEBP or GIF &middot; up to 25 files &middot; 20 MB each
+        Any order, any filenames &middot; PDF, JPEG, PNG, TIFF, BMP, WEBP, GIF
+        <br />
+        Up to 25 files, 20 MB each
       </p>
       <button
         type="button"

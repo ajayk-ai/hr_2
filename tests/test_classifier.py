@@ -3,7 +3,12 @@ from __future__ import annotations
 import pytest
 
 from app.config import Settings
-from app.domain.document_types import DocumentType, coerce_document_type
+from app.domain.document_types import (
+    CANONICAL_ORDER,
+    TYPE_HINTS,
+    DocumentType,
+    coerce_document_type,
+)
 from app.services.classifier import (
     GeminiDocumentClassifier,
     StubDocumentClassifier,
@@ -26,6 +31,23 @@ def test_gemini_classifier_constructs_its_chain() -> None:
     classifier = GeminiDocumentClassifier(settings)
 
     assert classifier.name == "gemini"
+
+
+class TestTaxonomyCoverage:
+    """The prompt catalogue is built from `TYPE_HINTS`, so a member without an
+    entry there is a document the model was never told how to recognise --
+    silently, since `dict.get` would not raise. A member missing from
+    `CANONICAL_ORDER` is worse: `order_index` falls back to "last", so it would
+    file correctly but appear to have simply been forgotten."""
+
+    def test_every_document_type_has_a_hint(self) -> None:
+        assert set(TYPE_HINTS) == set(DocumentType)
+
+    def test_every_document_type_has_a_filing_position(self) -> None:
+        assert set(CANONICAL_ORDER) == set(DocumentType)
+
+    def test_canonical_order_has_no_duplicates(self) -> None:
+        assert len(CANONICAL_ORDER) == len(set(CANONICAL_ORDER))
 
 
 class TestTruncateOcrText:

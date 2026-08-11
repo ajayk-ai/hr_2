@@ -28,16 +28,20 @@ export function FileList({ files, onRemove, disabled }: Props) {
       <ul className="file-list">
         {files.map(({ id, file }) => (
           <li key={id} className="file-list__item">
+            <span className="file-list__kind" aria-hidden="true">
+              {file.type === "application/pdf" ? "PDF" : "IMG"}
+            </span>
             <span className="file-list__name" title={file.name}>
               {file.name}
             </span>
             <span className="file-list__size">{formatBytes(file.size)}</span>
             <button
               type="button"
-              className="button button--ghost"
+              className="icon-button"
               disabled={disabled}
               onClick={() => onRemove(id)}
               aria-label={`Remove ${file.name}`}
+              title="Remove"
             >
               Remove
             </button>
