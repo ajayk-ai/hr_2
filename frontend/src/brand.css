@@ -1,0 +1,12 @@
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 1.25rem;
+}
+
+.brand__logo {
+  width: 6rem;
+  height: 6rem;
+  flex-shrink: 0;
+  object-fit: contain;
+}

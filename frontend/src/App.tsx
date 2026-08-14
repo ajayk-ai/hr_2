@@ -27,11 +27,16 @@ export default function App() {
   return (
     <main className="page">
       <header className="page__header">
-        <h1 className="page__title">Candidate document processor</h1>
-        <p className="page__subtitle">
-          Upload one candidate&rsquo;s documents. They are classified, renamed and
-          returned as an ordered ZIP. Nothing is stored on the server.
-        </p>
+        <div className="brand">
+          <img src="/bulllogo.png" alt="" className="brand__logo" />
+          <div>
+            <h1 className="page__title">Bull Doc Genie</h1>
+            <p className="page__subtitle">
+              Upload one candidate&rsquo;s documents. They are classified, renamed and
+              returned as an ordered ZIP. Nothing is stored on the server.
+            </p>
+          </div>
+        </div>
       </header>
 
       <form
