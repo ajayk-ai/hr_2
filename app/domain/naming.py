@@ -104,6 +104,12 @@ def _name_tokens(value: str) -> list[str]:
     return [token.upper() for token in _NON_ALNUM.split(ascii_form) if token]
 
 
+def sanitize_tag(value: str, *, max_length: int = 24) -> str:
+    """Strip a user-supplied identifier (e.g. a PR/requisition number) down to
+    safe, filename-friendly characters."""
+    return _NON_ALNUM.sub("", value).upper()[:max_length]
+
+
 def extension_for(original_filename: str, content_type: str) -> str:
     """Pick a safe extension for the output file.
 
@@ -206,6 +212,7 @@ def build_filename(
     content_type: str,
     sequence: int,
     request_id: str = "",
+    pr_number: str | None = None,
     mask_sensitive: bool = True,
 ) -> str:
     """Compose the final in-ZIP filename.
@@ -214,13 +221,15 @@ def build_filename(
     order, so every extractor and file browser re-sorts alphabetically. The prefix
     is what makes the requested filing order survive extraction.
 
-    ``request_id`` -- the same id already shown in the UI and used to name the
-    ZIP itself (``documents_<id>.zip``) -- is appended to every file it contains.
-    Two files named identically by two different HR uploads is otherwise a real
-    collision risk once files get extracted out of their ZIP and consolidated
-    into one shared folder; the tag also lets any loose file be traced back to
-    the request that produced it. It is reserved from the truncation budget
-    rather than truncated itself, so it is never the part that gets cut off.
+    A trailing tag is appended to every file so a loose file can be traced back
+    to the batch that produced it, and so two files named identically by two
+    different HR uploads do not collide once extracted into a shared folder.
+    When HR supplies a PR/requisition number that is the tag -- it is the
+    identifier HR actually tracks the candidate by, so files are traceable by
+    eye and not just by an opaque request id. Otherwise the server-generated
+    ``request_id`` is used, as before. It is reserved from the truncation
+    budget rather than truncated itself, so it is never the part that gets cut
+    off.
     """
     name = (
         normalise_name_segment(candidate_name)
@@ -236,7 +245,8 @@ def build_filename(
     stem = "_".join(segments)
 
     prefix = f"{sequence:02d}_"
-    id_tag = f"_{request_id[:8]}" if request_id else ""
+    tag_source = sanitize_tag(pr_number) if pr_number else request_id[:8]
+    id_tag = f"_{tag_source}" if tag_source else ""
     budget = MAX_FILENAME_LENGTH - len(prefix) - len(extension) - len(id_tag)
     return f"{prefix}{stem[:budget]}{id_tag}{extension}"
 

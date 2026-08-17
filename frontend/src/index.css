@@ -103,6 +103,10 @@ body {
   transition: border-color 120ms ease, background-color 120ms ease;
 }
 
+.dropzone:hover:not(.dropzone--disabled):not(.dropzone--active) {
+  border-color: var(--text-muted);
+}
+
 .dropzone--active {
   border-color: var(--accent);
   background: var(--info-bg);
@@ -141,6 +145,28 @@ body {
   border-radius: var(--radius);
   padding: 1.25rem;
   margin-top: 1.25rem;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.04);
+}
+
+.result {
+  animation: rise 220ms ease;
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .result {
+    animation: none;
+  }
 }
 
 .panel__header {
@@ -211,6 +237,12 @@ body {
 
 /* ---- Form -------------------------------------------------------------- */
 
+.field-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+  gap: 1.25rem;
+}
+
 .field {
   display: flex;
   flex-direction: column;
@@ -241,6 +273,11 @@ body {
   outline-offset: 1px;
 }
 
+.field__input--mono {
+  font-family: ui-monospace, SFMono-Regular, "Cascadia Code", Consolas, monospace;
+  letter-spacing: 0.02em;
+}
+
 .field__help {
   margin: 0;
   color: var(--text-muted);
@@ -254,6 +291,9 @@ body {
 }
 
 .button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
   padding: 0.55rem 1rem;
   border-radius: var(--radius);
   border: 1px solid transparent;
@@ -262,6 +302,7 @@ body {
   cursor: pointer;
   background: transparent;
   color: inherit;
+  transition: background-color 120ms ease, border-color 120ms ease, transform 80ms ease;
 }
 
 .button:disabled {
@@ -274,9 +315,18 @@ body {
   outline-offset: 2px;
 }
 
+.button:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
 .button--primary {
   background: var(--accent);
   color: var(--accent-contrast);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.08);
+}
+
+.button--primary:hover:not(:disabled) {
+  filter: brightness(1.08);
 }
 
 .button--secondary {
@@ -284,10 +334,24 @@ body {
   background: var(--surface);
 }
 
+.button--secondary:hover:not(:disabled) {
+  border-color: var(--text-muted);
+}
+
 .button--ghost {
   color: var(--text-muted);
   font-size: 0.875rem;
   padding: 0.35rem 0.6rem;
+}
+
+.button--ghost:hover:not(:disabled) {
+  color: var(--text);
+}
+
+.button__icon {
+  width: 1.05rem;
+  height: 1.05rem;
+  flex-shrink: 0;
 }
 
 /* ---- Alerts ------------------------------------------------------------ */
@@ -533,9 +597,11 @@ ul.alert {
 /* ---- Checklist ----------------------------------------------------------- */
 
 .checklist {
-  margin-bottom: 1.25rem;
-  padding-bottom: 1.1rem;
-  border-bottom: 1px solid var(--border);
+  margin: 0 0 1.25rem;
+  padding: 1rem 1.1rem 1.1rem;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
 }
 
 .checklist__header {
@@ -554,6 +620,7 @@ ul.alert {
 
 .checklist-category {
   padding: 0.75rem 0.9rem;
+  background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
 }

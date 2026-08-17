@@ -8,6 +8,7 @@ import { useDocumentProcessor } from "./hooks/useDocumentProcessor";
 
 export default function App() {
   const [candidateName, setCandidateName] = useState("");
+  const [prNumber, setPrNumber] = useState("");
   const {
     queue,
     rejected,
@@ -43,7 +44,7 @@ export default function App() {
         className="stack"
         onSubmit={(event) => {
           event.preventDefault();
-          void process(candidateName);
+          void process(candidateName, prNumber);
         }}
       >
         <FileDropzone onFiles={addFiles} disabled={busy} />
@@ -60,23 +61,46 @@ export default function App() {
 
         <FileList files={queue} onRemove={removeFile} disabled={busy} />
 
-        <div className="field">
-          <label className="field__label" htmlFor="candidate-name">
-            Candidate name <span className="field__optional">(optional)</span>
-          </label>
-          <input
-            id="candidate-name"
-            className="field__input"
-            type="text"
-            value={candidateName}
-            disabled={busy}
-            placeholder="Read from the documents if left blank"
-            onChange={(event) => setCandidateName(event.target.value)}
-          />
-          <p className="field__help">
-            Setting this overrides the name read from the documents, which is useful
-            when a scan is poor or the spelling is inconsistent across files.
-          </p>
+        <div className="field-row">
+          <div className="field">
+            <label className="field__label" htmlFor="candidate-name">
+              Candidate name <span className="field__optional">(optional)</span>
+            </label>
+            <input
+              id="candidate-name"
+              className="field__input"
+              type="text"
+              value={candidateName}
+              disabled={busy}
+              placeholder="Read from the documents if left blank"
+              onChange={(event) => setCandidateName(event.target.value)}
+            />
+            <p className="field__help">
+              Overrides the name read from the documents &mdash; useful when a scan is
+              poor or the spelling is inconsistent across files.
+            </p>
+          </div>
+
+          <div className="field">
+            <label className="field__label" htmlFor="pr-number">
+              PR number <span className="field__optional">(optional)</span>
+            </label>
+            <input
+              id="pr-number"
+              className="field__input field__input--mono"
+              type="text"
+              value={prNumber}
+              disabled={busy}
+              placeholder="e.g. PR-2026-0143"
+              autoCapitalize="characters"
+              onChange={(event) => setPrNumber(event.target.value)}
+            />
+            <p className="field__help">
+              Your requisition/PR number. When set, it becomes this batch&rsquo;s unique
+              ID &mdash; used to name the ZIP and tag every file inside it, in place of a
+              generated request ID.
+            </p>
+          </div>
         </div>
 
         {busy ? (

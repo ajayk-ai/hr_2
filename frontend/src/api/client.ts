@@ -58,6 +58,7 @@ export async function processDocuments(
   files: File[],
   options: {
     candidateName?: string;
+    prNumber?: string;
     requiredDocuments?: string[];
     signal?: AbortSignal;
   } = {},
@@ -66,6 +67,9 @@ export async function processDocuments(
   for (const file of files) form.append("files", file, file.name);
   if (options.candidateName?.trim()) {
     form.append("candidate_name", options.candidateName.trim());
+  }
+  if (options.prNumber?.trim()) {
+    form.append("pr_number", options.prNumber.trim());
   }
   if (options.requiredDocuments?.length) {
     form.append("required_documents", JSON.stringify(options.requiredDocuments));
@@ -102,7 +106,9 @@ export async function processDocuments(
     archive,
     suggestedFilename: filenameFromDisposition(
       response.headers.get("Content-Disposition"),
-      `documents_${report.request_id.slice(0, 8)}.zip`,
+      report.pr_number
+        ? `documents_PR-${report.pr_number}.zip`
+        : `documents_${report.request_id.slice(0, 8)}.zip`,
     ),
   };
 }

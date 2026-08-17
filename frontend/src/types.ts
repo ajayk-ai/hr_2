@@ -45,6 +45,8 @@ export interface ProcessingReport {
   request_id: string;
   generated_at: string;
   candidate_name: string | null;
+  /** HR-supplied requisition/PR number, when given. The candidate's tracking id. */
+  pr_number: string | null;
   files: FileReport[];
   missing_document_types: DocumentType[];
   duplicate_document_types: DocumentType[];

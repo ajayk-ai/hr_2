@@ -10,6 +10,7 @@ from fastapi.responses import StreamingResponse
 
 from app import __version__
 from app.api.deps import AuthDep, PipelineDep, SettingsDep
+from app.domain import naming
 from app.domain.document_types import (
     CANONICAL_ORDER,
     DEFAULT_REQUIRED_TYPES,
@@ -72,6 +73,16 @@ async def process_documents(
         str | None,
         Form(description="Overrides the name inferred from the documents."),
     ] = None,
+    pr_number: Annotated[
+        str | None,
+        Form(
+            description=(
+                "Optional HR requisition/PR number. When given, it replaces the "
+                "opaque request id as the batch's tracking identifier in the ZIP "
+                "filename and every file inside it."
+            )
+        ),
+    ] = None,
     required_documents: Annotated[
         str | None,
         Form(description='JSON array of document types, e.g. ["Aadhaar","PAN"].'),
@@ -106,9 +117,11 @@ async def process_documents(
         candidate_name=candidate_name,
         required_types=_parse_required_documents(required_documents),
         request_id=getattr(request.state, "request_id", None),
+        pr_number=pr_number,
     )
 
-    filename = f"documents_{result.request_id[:8]}.zip"
+    tag = naming.sanitize_tag(pr_number) if pr_number and pr_number.strip() else None
+    filename = f"documents_PR-{tag}.zip" if tag else f"documents_{result.request_id[:8]}.zip"
     return StreamingResponse(
         result.archive,
         media_type="application/zip",

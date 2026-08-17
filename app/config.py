@@ -48,6 +48,13 @@ class Settings(BaseSettings):
         ),
     )
 
+    # ---- Server --------------------------------------------------------------
+    host: str = Field(
+        default="0.0.0.0",
+        description="Interface uvicorn binds to when started via `python -m app.main`.",
+    )
+    port: Annotated[int, Field(gt=0, le=65535)] = 8000
+
     # ---- Auth --------------------------------------------------------------
     api_tokens: Annotated[list[SecretStr], NoDecode] = Field(
         default_factory=list,

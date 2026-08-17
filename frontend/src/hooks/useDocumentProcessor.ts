@@ -94,7 +94,7 @@ export function useDocumentProcessor() {
   }, []);
 
   const process = useCallback(
-    async (candidateName: string) => {
+    async (candidateName: string, prNumber: string) => {
       if (!queue.length) return;
 
       abortRef.current?.abort();
@@ -108,7 +108,7 @@ export function useDocumentProcessor() {
       try {
         const outcome = await processDocuments(
           queue.map((item) => item.file),
-          { candidateName, signal: controller.signal },
+          { candidateName, prNumber, signal: controller.signal },
         );
         setResult(outcome);
         setStatus("done");

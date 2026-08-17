@@ -235,12 +235,38 @@ export function ResultPanel({ result, onDownload, onReset }: Props) {
             {report.candidate_name ?? "Candidate"}
           </h2>
           <p className="result__meta">
-            {(report.processing_ms / 1000).toFixed(1)}s &middot; request{" "}
-            <code>{report.request_id.slice(0, 8)}</code>
+            {(report.processing_ms / 1000).toFixed(1)}s &middot;{" "}
+            {report.pr_number ? (
+              <>
+                PR <code>{report.pr_number}</code>
+              </>
+            ) : (
+              <>
+                request <code>{report.request_id.slice(0, 8)}</code>
+              </>
+            )}
           </p>
         </div>
         <div className="actions">
-          <button type="button" className="button button--primary" onClick={onDownload}>
+          <button
+            type="button"
+            className="button button--primary button--download"
+            onClick={onDownload}
+          >
+            <svg
+              className="button__icon"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+              <path d="M7 10l5 5 5-5" />
+              <path d="M12 15V3" />
+            </svg>
             Download ZIP
           </button>
           <button type="button" className="button button--secondary" onClick={onReset}>
@@ -248,6 +274,8 @@ export function ResultPanel({ result, onDownload, onReset }: Props) {
           </button>
         </div>
       </header>
+
+      <Checklist files={report.files} />
 
       <div className="stat-row">
         <Stat value={counts.filed} label="filed" tone="ok" />
@@ -270,8 +298,6 @@ export function ResultPanel({ result, onDownload, onReset }: Props) {
           ))}
         </ul>
       )}
-
-      <Checklist files={report.files} />
 
       <div className="result__toolbar">
         <h3 className="result__subheading">

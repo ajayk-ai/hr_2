@@ -6,12 +6,14 @@ import time
 import uuid
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 import structlog
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 from starlette.formparsers import MultiPartParser
 
 from app import __version__
@@ -170,7 +172,45 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
 
     app.include_router(router)
+
+    # Serve the built frontend from the same process, so one uvicorn command runs
+    # the whole service. The `assets` mount is registered first so its files win
+    # over the catch-all; the catch-all then serves index.html for the single
+    # page app (html=True resolves "/" to index.html).
+    frontend_dist = Path(__file__).resolve().parents[1] / "frontend" / "dist"
+    if frontend_dist.is_dir():
+        app.mount(
+            "/assets",
+            StaticFiles(directory=frontend_dist / "assets"),
+            name="frontend-assets",
+        )
+        app.mount("/", StaticFiles(directory=frontend_dist, html=True), name="frontend")
+        logger.info(
+            "app.frontend_served", dist=str(frontend_dist), url="/"
+        )
+    else:
+        logger.warning(
+            "app.frontend_missing",
+            detail=f"Frontend build not found at {frontend_dist}; "
+            "run `cd frontend && npm run build` to serve the UI from this process.",
+        )
+
     return app
 
 
 app = create_app()
+
+if __name__ == "__main__":
+    # `uv run python -m app.main` reads host/port from settings (HRDOC_HOST /
+    # HRDOC_PORT), so they live in .env instead of being hardcoded into every
+    # launch script. `uv run uvicorn app.main:app --host ... --port ...` still
+    # works too, for anyone who wants to override them ad hoc.
+    #
+    # Passed as the `app` object (not the "app.main:app" import string) so the
+    # module isn't re-imported a second time under a different name -- with the
+    # string form, --reload's requirement to re-import by path would otherwise
+    # run this file's top-level code (and lifespan startup) twice.
+    import uvicorn
+
+    settings = get_settings()
+    uvicorn.run(app, host=settings.host, port=settings.port)

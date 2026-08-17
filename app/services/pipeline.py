@@ -111,6 +111,7 @@ class DocumentPipeline:
         candidate_name: str | None = None,
         required_types: tuple[DocumentType, ...] = DEFAULT_REQUIRED_TYPES,
         request_id: str | None = None,
+        pr_number: str | None = None,
     ) -> PipelineResult:
         # Callers pass the HTTP request id so logs, the response header and
         # report.json can be correlated; a fresh one is minted for direct use.
@@ -135,6 +136,7 @@ class DocumentPipeline:
 
         resolved_name = candidate_name.strip() if candidate_name else None
         resolved_name = resolved_name or _infer_candidate_name(outcomes)
+        resolved_pr_number = pr_number.strip() if pr_number and pr_number.strip() else None
 
         successful = sorted(
             (o for o in outcomes if o.deliverable),
@@ -151,6 +153,7 @@ class DocumentPipeline:
                     content_type=outcome.upload.content_type,
                     sequence=index,
                     request_id=request_id,
+                    pr_number=resolved_pr_number,
                     mask_sensitive=self._settings.mask_sensitive_ids,
                 )
                 for index, outcome in enumerate(successful, start=1)
@@ -164,6 +167,7 @@ class DocumentPipeline:
         report = self._build_report(
             request_id=request_id,
             candidate_name=resolved_name,
+            pr_number=resolved_pr_number,
             outcomes=outcomes,
             successful=successful,
             required_types=required_types,
@@ -265,6 +269,7 @@ class DocumentPipeline:
         *,
         request_id: str,
         candidate_name: str | None,
+        pr_number: str | None,
         outcomes: list[_Outcome],
         successful: list[_Outcome],
         required_types: tuple[DocumentType, ...],
@@ -315,6 +320,7 @@ class DocumentPipeline:
             request_id=request_id,
             generated_at=datetime.now(UTC),
             candidate_name=candidate_name,
+            pr_number=pr_number,
             files=file_reports,
             missing_document_types=missing,
             duplicate_document_types=duplicates,

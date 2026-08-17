@@ -18,6 +18,9 @@ wheels/
 node_modules/
 frontend/dist/
 
+# Runtime logs (scripts/register-task.ps1)
+logs/
+
 # Secrets and local config -- never commit these
 .env
 .env.*

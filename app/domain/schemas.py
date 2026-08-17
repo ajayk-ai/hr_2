@@ -127,6 +127,11 @@ class ProcessingReport(BaseModel):
     request_id: str
     generated_at: datetime
     candidate_name: str | None = None
+    pr_number: str | None = Field(
+        default=None,
+        description="HR-supplied requisition/PR number, when given. Acts as the "
+        "candidate's tracking id in place of the opaque request id.",
+    )
     files: list[FileReport]
     missing_document_types: list[DocumentType] = Field(default_factory=list)
     duplicate_document_types: list[DocumentType] = Field(default_factory=list)
