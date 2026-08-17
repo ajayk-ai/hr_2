@@ -60,29 +60,46 @@ Frontend: `frontend/.env.local` normally stays empty in dev (Vite proxies to
 
 `scripts/setup.ps1` already ran `npm run build`, producing `frontend/dist`.
 `app/main.py` mounts that directory automatically ([app/main.py:176-196](app/main.py#L176-L196))
-— if it's present, one uvicorn process serves both the UI and the API:
+— if it's present, one process serves both the UI and the API. There's no
+separate frontend server or proxy to run, and no admin/elevation needed for
+any of the three ways below to start it — only `register-task.ps1` needs
+admin, and only because of *what* it sets up (see why below).
+
+Pick whichever fits how the machine will be used:
+
+| Option | How to start it | Survives reboot/logoff? | Needs admin? | Best for |
+| --- | --- | --- | --- | --- |
+| **`scripts\run.bat`** | Double-click it (or run from a terminal) | No — stops when its window closes | No | Simplest option. A dev testing this on their own machine, or anyone who just wants to click a file and not think about PowerShell. |
+| Raw command | `uv run python -m app.main` | No — same as above | No | Same as `run.bat`, but from a terminal you already have open — useful when you want to see errors inline or you're already mid-session in PowerShell. |
+| **`scripts\register-task.ps1`** | Run once, from an elevated PowerShell | Yes — starts at boot, restarts on crash | Yes | The actual production server — the one machine that should "just stay up" without anyone remembering to start it. |
+
+All three run the exact same code path (`app/main.py`'s `__main__` block),
+reading `HRDOC_HOST` / `HRDOC_PORT` from `.env` — nothing is hardcoded
+per-option, so switching between them later doesn't require editing any
+script.
+
+### Option A / B — `run.bat` or the raw command (everyday use)
 
 ```powershell
-uv run uvicorn app.main:app --host 0.0.0.0 --port 8000
+uv run python -m app.main
 # → http://127.0.0.1:8000        (UI)
 # → http://127.0.0.1:8000/docs   (API docs, disabled in production)
 # → http://127.0.0.1:8000/health
 ```
 
-Or just double-click **`scripts\run.bat`** — no admin, no PowerShell execution
-policy to worry about. It runs the same command in a console window; closing
-the window stops the server, and it needs to be started again after a reboot.
-
-Nothing else to run — no separate frontend server, no proxy. Because the UI
-and API are same-origin here, `frontend/.env.local`'s `VITE_API_BASE_URL` can
-stay empty (requests resolve to relative paths).
+`scripts\run.bat` runs this same line for you inside a `.bat` file — it
+`cd`s to the repo root, checks `uv` is installed and `frontend\dist` was
+built, then starts the server. Closing that window is how you stop it; you'd
+double-click it again after a reboot. This is the option to reach for first —
+default to it unless you specifically need the server to survive without
+anyone around, in which case use Option C.
 
 If `frontend/dist` is missing or stale, the app still starts but logs
 `app.frontend_missing` and serves API-only; rebuild with `cd frontend; npm run build`
 and restart.
 
-**Active frontend development** (hot reload) still uses the two-process dev
-flow instead:
+**Active frontend development** (hot reload) uses a different two-process dev
+flow instead of either option above:
 
 ```powershell
 # Terminal 1
@@ -91,14 +108,14 @@ uv run uvicorn app.main:app --reload
 cd frontend; npm run dev   # → http://localhost:5173, proxies /api and /health
 ```
 
-### Making it persistent (production, needs admin)
+### Option C — `register-task.ps1` (unattended production)
 
-`scripts\run.bat` and the raw uvicorn command above only last as long as their
-window stays open — they won't survive logout or a reboot, and nothing
-restarts them if they crash. For a server that should just stay up
-unattended, register it as a Windows Scheduled Task instead (this step does
-require an elevated/Administrator PowerShell — there's no way around that for
-a task that starts before anyone logs in, regardless of `.bat` vs `.ps1`):
+Both options above only last as long as their window stays open — they won't
+survive logout or a reboot, and nothing restarts them if they crash. For a
+server that should just stay up on its own, register it as a Windows
+Scheduled Task instead. This is the one step that genuinely requires an
+elevated/Administrator PowerShell — creating a task that starts *before
+anyone logs in* is an OS-level privilege, true of `.bat` or `.ps1` alike:
 
 ```powershell
 # From an elevated (Administrator) PowerShell, after scripts\setup.ps1 has run:
